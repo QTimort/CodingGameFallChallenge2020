@@ -160,6 +160,30 @@ struct Tree
         parent_node->steps = 0;
         return parent_node;
     }
+
+    static inline const Node* BFS(const Node * const node, InvUnion invGoal, int &nodeVisited) {
+        deque<const Node *> toVisit = deque<const Node *>({node});
+        const Node *curNode;
+        nodeVisited = 0;
+        while (!toVisit.empty()) {
+            ++nodeVisited;
+            curNode = toVisit.front();
+            toVisit.pop_front();
+            if (
+                    curNode->invUnion.inv.inv0 >= invGoal.inv.inv0 &&
+                    curNode->invUnion.inv.inv1 >= invGoal.inv.inv1 &&
+                    curNode->invUnion.inv.inv2 >= invGoal.inv.inv2 &&
+                    curNode->invUnion.inv.inv3 >= invGoal.inv.inv3
+                    ) {
+                return curNode;
+            }
+            for (auto &n : curNode->children) {
+                toVisit.insert(toVisit.begin(), n->children.begin(), n->children.end());
+            }
+        }
+        return nullptr;
+    }
+
     static inline const Node* stonkBFS(unordered_set<Node *> (&nodes)[], const int depth , InvUnion invGoal, int &nodeVisited) {
         for (int i = 0; i < depth; ++i) {
             for (const auto& node: nodes[i]) {
@@ -176,6 +200,7 @@ struct Tree
         }
         return nullptr;
     }
+
     static inline Node *InsertNode(Node *parent, InvUnion invUnion, unsigned char actionIdx)
     {
         Node *childNode = CreateNode(invUnion, actionIdx);
@@ -306,10 +331,10 @@ inline deque<int> convertTreeSteps(const deque<int> &steps, const vector<Action>
     return convertedSteps;
 }
 
-inline deque<int> stepsFromNode(const Node *node) {
+inline deque<int> stepsFromNode(const Node *start, const Node *end) {
     deque<int> steps;
-    const Node *it = node;
-    while (it->parent != nullptr) {
+    const Node *it = end;
+    while (it->parent != nullptr && it != start) {
         steps.push_front(it->actionIdx);
         it = it->parent;
         cerr << to_string(it->invUnion.inv.inv0) << to_string(it->invUnion.inv.inv1) << to_string(it->invUnion.inv.inv2) << to_string(it->invUnion.inv.inv3) << endl;
@@ -372,10 +397,6 @@ inline void codingGameAI() {
         invToSearch.inv.inv1 = me.inv1;
         invToSearch.inv.inv2 = me.inv2;
         invToSearch.inv.inv3 = me.inv3;
-        invToSearch.inv.inv0 = 2;
-        invToSearch.inv.inv1 = 2;
-        invToSearch.inv.inv2 = 2;
-        invToSearch.inv.inv3 = 0;
         if (round == 0) {
             initialCastsAndLearn = getAllCastAndLearnAsCast(reinterpret_cast<Action (&)[]>(actions), actionCount);
             firstRoundCompute(initialCastsAndLearn, castTree, invToSearch);
@@ -388,17 +409,21 @@ inline void codingGameAI() {
         }
         if (round == spellsToLearn.size()) { // todo change this is just to test
             int count;
-            //const Node *initialNode = Tree::stonkBFS(reinterpret_cast<unordered_set<Node *> (&)[]>(nodesPerDepth), TREE_DEPTH, invToSearch, count);
-            //if (bfs == nullptr) {
-            //    cerr << "Kaboom, no solution found in tree" << endl;
-            //    break;
-            //}
-            // todo fix we cant start from the initial node
-            const Node *nodeForBrew = Tree::stonkBFS(reinterpret_cast<unordered_set<Node *> (&)[]>(nodesPerDepth), TREE_DEPTH, invToSearch, count);
-            if (nodeForBrew != nullptr) {
-                steps = convertTreeSteps(stepsFromNode(nodeForBrew), initialCastsAndLearn);
+            // todo if we dont find the beginning node, we should try to any recipe that reduce the size of our inv
+            const Node *initialNode = Tree::stonkBFS(reinterpret_cast<unordered_set<Node *> (&)[]>(nodesPerDepth), TREE_DEPTH, invToSearch, count);
+            if (initialNode == nullptr) {
+                cerr << "Kaboom, no initial solution found in tree" << endl;
             } else {
-                cerr << "Kaboom, no solution found in tree" << endl;
+                invToSearch.inv.inv0 = 0;
+                invToSearch.inv.inv1 = 0;
+                invToSearch.inv.inv2 = 2;
+                invToSearch.inv.inv3 = 2;
+                const Node *nodeForBrew = Tree::BFS(initialNode, invToSearch, count);
+                if (nodeForBrew != nullptr) {
+                    steps = convertTreeSteps(stepsFromNode(initialNode, nodeForBrew), initialCastsAndLearn);
+                } else {
+                    cerr << "Kaboom, no end solution found in tree" << endl;
+                }
             }
         }
         for (auto& i: steps)
