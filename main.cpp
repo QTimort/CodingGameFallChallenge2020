@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <deque>
+#include <unordered_set>
 
 #pragma GCC optimize("Ofast")
 #pragma GCC optimize("inline")
@@ -27,6 +28,8 @@ if ((ACTION).actionType == Cast) { \
     (INV).inv.inv2 += (ACTION).delta2; \
     (INV).inv.inv3 += (ACTION).delta3; \
 }
+
+#define TREE_DEPTH (8)
 
 using namespace std;
 
@@ -135,7 +138,7 @@ struct Node {
     Node *parent = nullptr;
 };
 
-static const vector<int> EMPTY_VECTOR = vector<int>();
+static unordered_set<Node *> nodesPerDepth[TREE_DEPTH];
 
 struct Tree
 {
@@ -149,25 +152,18 @@ struct Tree
         parent_node->steps = 0;
         return parent_node;
     }
-    static inline const Node* BFS(const Node * const node, InvUnion invGoal, int &nodeVisited) {
-        vector<const Node *> toVisit = vector<const Node *>({node});
-        const Node *curNode;
-        nodeVisited = 0;
-        while (!toVisit.empty()) {
-            ++nodeVisited;
-            curNode = toVisit.back();
-            toVisit.pop_back();
-            if (
-                    curNode->invUnion.inv.inv0 >= invGoal.inv.inv0 &&
-                    curNode->invUnion.inv.inv1 >= invGoal.inv.inv1 &&
-                    curNode->invUnion.inv.inv2 >= invGoal.inv.inv2 &&
-                    curNode->invUnion.inv.inv3 >= invGoal.inv.inv3
-                    ) {
-                return curNode;
-            }
-            for (auto &n : curNode->children) {
-                // todo check why it is much faster to insert at the end instead of the beginning
-                toVisit.insert(toVisit.end(), n->children.begin(), n->children.end());
+    static inline const Node* stonkBFS(unordered_set<Node *> (&nodesPerDepth)[], const int depth , InvUnion invGoal, int &nodeVisited) {
+        for (int i = 0; i < depth; ++i) {
+            for (const auto& node: nodesPerDepth[i]) {
+                ++nodeVisited;
+                if (
+                        node->invUnion.inv.inv0 >= invGoal.inv.inv0 &&
+                        node->invUnion.inv.inv1 >= invGoal.inv.inv1 &&
+                        node->invUnion.inv.inv2 >= invGoal.inv.inv2 &&
+                        node->invUnion.inv.inv3 >= invGoal.inv.inv3
+                ) {
+                    return node;
+                }
             }
         }
         return nullptr;
@@ -219,8 +215,11 @@ inline void buildTree(Node *node, const Action (&actions)[], const int actionCou
         if (depth <= maxDepth && actions[i].actionType == Cast && CAN_DO_ACTION(inv, actions[i])) {
             APPLY_ACTION(inv, actions[i])
             Node *childNode = Tree::InsertNode(node, inv, i);
+            if (depth > 0) {
+                nodesPerDepth[depth - 1].insert(childNode);
+            }
             buildTree(childNode, actions, actionCount, depth, maxDepth);
-            computeStepTree(childNode, actions);
+            //computeStepTree(childNode, actions);
             inv.packedInv = node->invUnion.packedInv;
         }
     }
@@ -240,7 +239,7 @@ inline vector<Action> getAllCast(const Action (&actions)[], const int actionCoun
     return a;
 }
 
-void codingGameIA() {
+void codingGameAI() {
     PlayerInfo me;
     PlayerInfo enemy;
     vector<int> steps = vector<int>();
@@ -249,7 +248,6 @@ void codingGameIA() {
     int round = 0;
     int count = 0;
     int targetIdx = 0;
-    const int treeDepth = 8;
     InvUnion invToSearch;
     invToSearch.inv.inv0 = 0;
     invToSearch.inv.inv1 = 0;
@@ -265,12 +263,12 @@ void codingGameIA() {
         if (round == 0) {
             vector<Action> allCast = getAllCast(reinterpret_cast<Action (&)[]>(actions), actionCount);
             auto t1 = std::chrono::high_resolution_clock::now();
-            buildTree(castTree.root, reinterpret_cast<Action (&)[]>(*allCast.data()), allCast.size(), 0, treeDepth);
+            buildTree(castTree.root, reinterpret_cast<Action (&)[]>(*allCast.data()), allCast.size(), 0, TREE_DEPTH);
             auto t2 = std::chrono::high_resolution_clock::now();
             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
             cerr << "tree build duration: " << duration << "ms" << endl;
             t1 = std::chrono::high_resolution_clock::now();
-            const Node *bfs = Tree::BFS(castTree.root, invToSearch, count);
+            const Node *bfs = Tree::stonkBFS(reinterpret_cast<unordered_set<Node *> (&)[]>(nodesPerDepth), TREE_DEPTH, invToSearch, count);
             t2 = std::chrono::high_resolution_clock::now();
             duration = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
             cerr << "tree search duration: " << duration << "ms to visit " << to_string(count) << " nodes" << endl;
@@ -321,6 +319,48 @@ void test() {
             {79, Cast, -1,1,0,0,0,-1,-1,1,0},
             {80, Cast, 0,-1,1,0,0,-1,-1,1,1},
             {81, Cast, -2,2,0,0,0,-1,-1,1,0},
+            /*{90, Cast,-3, 0, 0, 1,0,-1,-1,1,1},
+            {91, Cast,3, -1, 0, 0,0,-1,-1,1,1},
+            {92, Cast,1, 1, 0, 0,0,-1,-1,1,1},
+            {93, Cast,0, 0, 1, 0,0,-1,-1,1,1},
+            {94, Cast,3, 0, 0, 0,0,-1,-1,1,1},
+            {95, Cast,2, 3, -2, 0,0,-1,-1,1,1},
+            {96, Cast,2, 1, -2, 1,0,-1,-1,1,1},
+            {97, Cast,3, 0, 1, -1,0,-1,-1,1,1},
+            {98, Cast,3, -2, 1, 0,0,-1,-1,1,1},
+            {99, Cast,2, -3, 2, 0,0,-1,-1,1,1},
+            {100, Cast,2, 2, 0, -1,0,-1,-1,1,1},
+            {101, Cast,-4, 0, 2, 0,0,-1,-1,1,1},
+            {102, Cast,2, 1, 0, 0,0,-1,-1,1,1},
+            {103, Cast,4, 0, 0, 0,0,-1,-1,1,1},
+            {104, Cast,0, 0, 0, 1,0,-1,-1,1,1},
+            {105, Cast,0, 2, 0, 0,0,-1,-1,1,1},
+            {106, Cast,1, 0, 1, 0,0,-1,-1,1,1},
+            {107, Cast,-2, 0, 1, 0,0,-1,-1,1,1},
+            {108, Cast,-1, -1, 0, 1,0,-1,-1,1,1},
+            {109, Cast,0, 2, -1, 0,0,-1,-1,1,1},
+            {110, Cast,2, -2, 0, 1,0,-1,-1,1,1},
+            {111, Cast,-3, 1, 1, 0,0,-1,-1,1,1},
+            {112, Cast,0, 2, -2, 1,0,-1,-1,1,1},
+            {113, Cast,1, -3, 1, 1,0,-1,-1,1,1},
+            {114, Cast,0, 3, 0, -1,0,-1,-1,1,1},
+            {115, Cast,0, -3, 0, 2,0,-1,-1,1,1},
+            {116, Cast,1, 1, 1, -1,0,-1,-1,1,1},
+            {117, Cast,1, 2, -1, 0,0,-1,-1,1,1},
+            {118, Cast,4, 1, -1, 0,0,-1,-1,1,1},
+            {119, Cast,-5, 0, 0, 2,0,-1,-1,1,1},
+            {120, Cast,-4, 0, 1, 1,0,-1,-1,1,1},
+            {121, Cast,0, 3, 2, -2,0,-1,-1,1,1},
+            {122, Cast,1, 1, 3, -2,0,-1,-1,1,1},
+            {123, Cast,-5, 0, 3, 0,0,-1,-1,1,1},
+            {124, Cast,-2, 0, -1, 2,0,-1,-1,1,1},
+            {125, Cast,0, 0, -3, 3,0,-1,-1,1,1},
+            {126, Cast,0, -3, 3, 0,0,-1,-1,1,1},
+            {127, Cast,-3, 3, 0, 0,0,-1,-1,1,1},
+            {128, Cast,-2, 2, 0, 0,0,-1,-1,1,1},
+            {129, Cast,0, 0, -2, 2,0,-1,-1,1,1},
+            {130, Cast,0, -2, 2, 0,0,-1,-1,1,1},
+            {131, Cast,0, 0, 2, -1,0,-1,-1,1,1},*/
     };
     Tree t;
     InvUnion invToSearch;
@@ -330,10 +370,10 @@ void test() {
     invToSearch.inv.inv3 = 0;
     int count = 0;
     auto t1 = std::chrono::high_resolution_clock::now();
-    buildTree(t.root, reinterpret_cast<Action (&)[]>(actions), 13, 0, 10);
+    buildTree(t.root, reinterpret_cast<Action (&)[]>(actions), 9, 0, TREE_DEPTH); // todo determine actionCount automatically
     auto t2 = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
-    const Node *bfs = Tree::BFS(t.root, invToSearch, count);
+    const Node *bfs = Tree::stonkBFS(reinterpret_cast<unordered_set<Node *> (&)[]>(nodesPerDepth), TREE_DEPTH, invToSearch, count);
     std::cout << duration << endl;
     if (bfs != nullptr) {
         cout<<"found solution after looking " << count << " node" << endl;
@@ -348,6 +388,6 @@ void test() {
 
 int main()
 {
-    codingGameIA();
-    //test();
+    //codingGameAI();
+    test();
 }
