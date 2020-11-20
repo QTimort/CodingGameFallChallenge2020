@@ -1,7 +1,6 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include <set>
 #include <algorithm>
 #include <chrono>
 #include <deque>
@@ -74,7 +73,6 @@ struct PlayerInfo {
     int inv2 = 0;
     int inv3 = 0;
     int score = 0; // amount of rupees
-    set<int> exhaustedActions = set<int>();
 
     inline static void readNextPlayerInfo(PlayerInfo &p) {
         cin >> p.inv0 >> p.inv1 >> p.inv2 >> p.inv3 >> p.score; cin.ignore();
@@ -128,6 +126,7 @@ union InvUnion {
     } inv;
 
     InvUnion() {
+        this->packedInv = 0;
         this->inv.inv0 = 0;
         this->inv.inv1 = 0;
         this->inv.inv2 = 0;
@@ -140,13 +139,9 @@ struct Node;
 struct Node {
     InvUnion invUnion;
     unsigned char actionIdx = -1;
-    unsigned char steps = 0;
-    bool rest = false;
     vector<Node *> children = vector<Node *>();
     Node *parent = nullptr;
 };
-
-static unordered_set<Node *> nodesPerDepth[TREE_DEPTH];
 
 struct Tree
 {
@@ -157,11 +152,10 @@ struct Tree
         Node *parent_node = new Node;
         parent_node->invUnion = invUnion;
         parent_node->actionIdx = actionIdx;
-        parent_node->steps = 0;
         return parent_node;
     }
 
-    static inline const Node* BFS(const Node * const node, InvUnion invGoal, int &nodeVisited) {
+    /*static inline const Node* BFS(const Node * const node, InvUnion invGoal, int &nodeVisited, bool exactMatch) {
         deque<const Node *> toVisit = deque<const Node *>({node});
         const Node *curNode;
         nodeVisited = 0;
@@ -170,6 +164,16 @@ struct Tree
             curNode = toVisit.front();
             toVisit.pop_front();
             if (
+                    exactMatch &&
+                    curNode->invUnion.inv.inv0 == invGoal.inv.inv0 &&
+                    curNode->invUnion.inv.inv1 == invGoal.inv.inv1 &&
+                    curNode->invUnion.inv.inv2 == invGoal.inv.inv2 &&
+                    curNode->invUnion.inv.inv3 == invGoal.inv.inv3
+                    ) {
+                return curNode;
+            }
+            if (
+                    !exactMatch &&
                     curNode->invUnion.inv.inv0 >= invGoal.inv.inv0 &&
                     curNode->invUnion.inv.inv1 >= invGoal.inv.inv1 &&
                     curNode->invUnion.inv.inv2 >= invGoal.inv.inv2 &&
@@ -182,24 +186,7 @@ struct Tree
             }
         }
         return nullptr;
-    }
-
-    static inline const Node* stonkBFS(unordered_set<Node *> (&nodes)[], const int depth , InvUnion invGoal, int &nodeVisited) {
-        for (int i = 0; i < depth; ++i) {
-            for (const auto& node: nodes[i]) {
-                ++nodeVisited;
-                if (
-                        node->invUnion.inv.inv0 >= invGoal.inv.inv0 &&
-                        node->invUnion.inv.inv1 >= invGoal.inv.inv1 &&
-                        node->invUnion.inv.inv2 >= invGoal.inv.inv2 &&
-                        node->invUnion.inv.inv3 >= invGoal.inv.inv3
-                ) {
-                    return node;
-                }
-            }
-        }
-        return nullptr;
-    }
+    }*/
 
     static inline Node *InsertNode(Node *parent, InvUnion invUnion, unsigned char actionIdx)
     {
@@ -212,50 +199,49 @@ struct Tree
     }
 };
 
-inline void computeStepTree(Node *node, const Action (&actions)[]) {
-    Node *nodeIt = node;
-    set<unsigned char> exhaustedIdx = set<unsigned char>();
-    deque<Node *> nodes = deque<Node *>();
-
-    while (nodeIt->parent != nullptr) {
-        nodes.push_front(nodeIt);
-        if (nodeIt->rest) {
-            break;
-        }
-        nodeIt = nodeIt->parent;
-    }
-    for (int i = 0; i < nodes.size(); ++i) {
-        nodeIt = nodes[i];
-        unsigned char actionIdx = nodeIt->actionIdx;
-        if (exhaustedIdx.find(actionIdx) == exhaustedIdx.end()) {
-            exhaustedIdx.insert(actionIdx);
-            if (!nodeIt->rest)
-                nodeIt->steps = (nodeIt->parent == nullptr) ? (1) : (nodeIt->parent->steps + 1);
-        } else if (!actions[actionIdx].repeatable || nodes[i - 1]->actionIdx != actionIdx) {
-            exhaustedIdx.clear();
-            nodeIt->steps = nodes[i - 1]->steps + 2;
-            nodeIt->rest = true;
-        } else {
-            nodeIt->steps = nodes[i - 1]->steps;
-        }
-    }
-}
-
-inline void buildTree(Node *node, const vector<Action> &actions, int depth, const int maxDepth) {
+/*inline void buildTree(Node *node, const vector<Action> &actions, int depth, const int maxDepth) {
     InvUnion inv = node->invUnion;
     ++depth;
     for (int i = 0; i < actions.size(); i++) {
         if (depth <= maxDepth && actions[i].actionType == Cast && CAN_DO_ACTION(inv, actions[i])) {
             APPLY_ACTION(inv, actions[i])
             Node *childNode = Tree::InsertNode(node, inv, i);
-            if (depth > 0) {
-                nodesPerDepth[depth - 1].insert(childNode);
-            }
             buildTree(childNode, actions, depth, maxDepth);
-            //computeStepTree(childNode, actions);
             inv.packedInv = node->invUnion.packedInv;
         }
     }
+}*/
+
+static const vector<int> EMPTY_VECTOR = vector<int>();
+
+inline vector<int> findSolution(const InvUnion inv, const vector<Action> &casts, const vector<Action> &brews, const int maxDepth, int depth) {
+    ++depth;
+    InvUnion newInv = inv;
+    vector<int> steps = vector<int>();
+    if (depth == 0) {
+        for (int j = 0; j < brews.size(); j++) {
+            if (newInv.inv.inv0 >= -brews[j].delta0 && newInv.inv.inv1 >= -brews[j].delta1 && newInv.inv.inv2 >= -brews[j].delta2 && newInv.inv.inv3 >= -brews[j].delta3) {
+                return vector<int>({-(j + 1)}); // done
+            }
+        }
+    }
+    for (int i = 0; i < casts.size(); i++) {
+        if (depth <= maxDepth && CAN_DO_ACTION(newInv, casts[i])) {
+            APPLY_ACTION(newInv, casts[i])
+            for (int j = 0; j < brews.size(); j++) {
+                if (newInv.inv.inv0 >= -brews[j].delta0 && newInv.inv.inv1 >= -brews[j].delta1 && newInv.inv.inv2 >= -brews[j].delta2 && newInv.inv.inv3 >= -brews[j].delta3) {
+                    return vector<int>({-(j + 1), i}); // done
+                }
+            }
+            vector<int> res = findSolution(newInv, casts, brews, maxDepth, depth);
+            if (!res.empty()) {
+                res.push_back(i);
+                return res;
+            }
+            newInv.packedInv = inv.packedInv;
+        }
+    }
+    return EMPTY_VECTOR;
 }
 
 inline vector<Action> getAllCastAndLearnAsCast(const Action (&actions)[], const int actionCount) {
@@ -277,36 +263,80 @@ inline vector<Action> getAllCast(const Action (&actions)[], const int actionCoun
     for (int i = 0; i < actionCount; i++) {
         const Action &it = actions[i];
         if (it.actionType == Cast) {
-            a.insert(a.begin(), it);
+            a.push_back(it);
         }
     }
     return a;
 }
+
 
 inline vector<Action> getAllLearn(const Action (&actions)[], const int actionCount) {
     vector<Action> a = vector<Action>();
     for (int i = 0; i < actionCount; i++) {
         const Action &it = actions[i];
         if (it.actionType == Learn) {
-            a.insert(a.begin(), it);
+            a.insert(a.begin(), it); // order matter when buying the books
         }
     }
     return a;
 }
 
+inline vector<Action> getAllBrews(const Action (&actions)[], const int actionCount) {
+    vector<Action> a = vector<Action>();
+    for (int i = 0; i < actionCount; i++) {
+        const Action &it = actions[i];
+        if (it.actionType == Brew) {
+            a.push_back(it);
+            cerr << it << endl;
+        }
+    }
+    return a;
+}
+
+inline int findBrewIdxWithLowestDelta(const Action (&actions)[], const int actionCount, InvUnion inv) {
+    int lowestDelta = 10;
+    int lowestDeltaIdx = -1;
+    for (int i = 0; i < actionCount; i++) {
+        const Action &it = actions[i];
+        if (it.actionType == Brew) {
+            int delta = inv.inv.inv0 + it.delta0 + inv.inv.inv1 + it.delta1 + inv.inv.inv2 + it.delta2 + inv.inv.inv3 + it.delta3;
+            if (delta < lowestDelta) {
+                lowestDelta = delta;
+                lowestDeltaIdx = i;
+            }
+        }
+    }
+    return lowestDeltaIdx;
+}
+
+inline int findBrewIdxWithHighestPrice(const Action (&actions)[], const int actionCount, InvUnion inv) {
+    int highestPrice = 0;
+    int highestPriceIdx = -1;
+    for (int i = 0; i < actionCount; i++) {
+        const Action &it = actions[i];
+        if (it.actionType == Brew) {
+            if (highestPrice < (it.price + it.taxCount)) {
+                highestPrice = it.price + it.taxCount;
+                highestPriceIdx = i;
+            }
+        }
+    }
+    return highestPriceIdx;
+}
+
 inline void firstRoundCompute(vector<Action> &allCast, Tree &castTree, const InvUnion &invToSearch) {
     auto t1 = std::chrono::high_resolution_clock::now();
-    buildTree(castTree.root, allCast, 0, TREE_DEPTH);
+    //buildTree(castTree.root, allCast, 0, TREE_DEPTH);
     auto t2 = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
     cerr << "tree build duration: " << duration << "ms" << endl;
-    t1 = std::chrono::high_resolution_clock::now();
-    int count = 0;
-    const Node *bfs = Tree::stonkBFS(reinterpret_cast<unordered_set<Node *> (&)[]>(nodesPerDepth), TREE_DEPTH, invToSearch, count);
-    t2 = std::chrono::high_resolution_clock::now();
-    duration = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
-    cerr << "tree search duration: " << duration << "ms to visit " << to_string(count) << " nodes" << endl;
-    cerr << "found solution? " << ((bfs == nullptr) ? ("No") : ("Yes")) << endl;
+    //t1 = std::chrono::high_resolution_clock::now();
+    //int count = 0;
+    //const Node *bfs = Tree::stonkBFS(reinterpret_cast<unordered_set<Node *> (&)[]>(nodesPerDepth), TREE_DEPTH, invToSearch, count);
+    //t2 = std::chrono::high_resolution_clock::now();
+    //duration = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+    //cerr << "tree search duration: " << duration << "ms to visit " << to_string(count) << " nodes" << endl;
+    //cerr << "found solution? " << ((bfs == nullptr) ? ("No") : ("Yes")) << endl;
 }
 
 inline deque<int> convertTreeSteps(const deque<int> &steps, const vector<Action> &initialCastsAndLearn) {
@@ -314,8 +344,8 @@ inline deque<int> convertTreeSteps(const deque<int> &steps, const vector<Action>
     unordered_set<int> exhaustedId = unordered_set<int>();
     for (int i = 0; i < steps.size(); ++i) {
         const int step = steps[i];
-        cerr << "i=" << to_string(i) << " step=" << to_string(step) << endl;
         const Action &a = initialCastsAndLearn[step];
+        cerr << "i=" << to_string(i) << " step=" << to_string(step) << " " << a << endl;
         if (exhaustedId.find(a.actionId) == exhaustedId.end()) {
             exhaustedId.insert(a.actionId);
             convertedSteps.push_back(a.actionId);
@@ -334,12 +364,15 @@ inline deque<int> convertTreeSteps(const deque<int> &steps, const vector<Action>
 inline deque<int> stepsFromNode(const Node *start, const Node *end) {
     deque<int> steps;
     const Node *it = end;
+    if (start == end) {
+        cerr << "start = end " << to_string(it->actionIdx) << " " << to_string(it->invUnion.inv.inv0) << to_string(it->invUnion.inv.inv1) << to_string(it->invUnion.inv.inv2) << to_string(it->invUnion.inv.inv3) << endl;
+        steps.push_front(start->actionIdx);
+    }
     while (it->parent != nullptr && it != start) {
         steps.push_front(it->actionIdx);
         it = it->parent;
-        cerr << to_string(it->invUnion.inv.inv0) << to_string(it->invUnion.inv.inv1) << to_string(it->invUnion.inv.inv2) << to_string(it->invUnion.inv.inv3) << endl;
     }
-    cerr << endl;
+    cerr << "step from node size " << to_string(steps.size()) << endl;
     return steps;
 }
 
@@ -369,14 +402,23 @@ inline void updateLearnedCast(
     }
 }
 
+inline bool isAnyCastExhausted(const Action (&actions)[], const int actionCount) {
+    for (int i = 0; i < actionCount; ++i) {
+        if (actions[i].actionType == Cast && !actions[i].castable) {
+            return true;
+        }
+    }
+    return false;
+}
+
 inline void codingGameAI() {
     PlayerInfo me;
     PlayerInfo enemy;
     deque<int> steps = deque<int>();
-    int targetId;
+    int targetId = -1;
     int actionCount; // the number of spells and recipes in play
     int round = 0;
-    int targetIdx = 0;
+    int targetIdx = -1;
     unordered_map<unsigned char, unsigned char> learnToCastIdx;
     InvUnion invToSearch;
     invToSearch.inv.inv0 = 0;
@@ -397,6 +439,7 @@ inline void codingGameAI() {
         invToSearch.inv.inv1 = me.inv1;
         invToSearch.inv.inv2 = me.inv2;
         invToSearch.inv.inv3 = me.inv3;
+        const bool exhaustedCast = isAnyCastExhausted(reinterpret_cast<Action (&)[]>(actions), actionCount);
         if (round == 0) {
             initialCastsAndLearn = getAllCastAndLearnAsCast(reinterpret_cast<Action (&)[]>(actions), actionCount);
             firstRoundCompute(initialCastsAndLearn, castTree, invToSearch);
@@ -407,33 +450,100 @@ inline void codingGameAI() {
         } else if (round == spellsToLearn.size()) {
             updateLearnedCast(spellsToLearn, reinterpret_cast<Action (&)[]>(actions), actionCount, initialCastsAndLearn);
         }
-        if (round == spellsToLearn.size()) { // todo change this is just to test
-            int count;
-            // todo if we dont find the beginning node, we should try to any recipe that reduce the size of our inv
-            const Node *initialNode = Tree::stonkBFS(reinterpret_cast<unordered_set<Node *> (&)[]>(nodesPerDepth), TREE_DEPTH, invToSearch, count);
-            if (initialNode == nullptr) {
-                cerr << "Kaboom, no initial solution found in tree" << endl;
+        if (round >= spellsToLearn.size() && ((targetIdx == -1 && steps.empty()) || actions[targetIdx].actionId != targetId)) {
+            if (exhaustedCast) {
+                steps.clear();
+                steps.push_front(-1); // rest
             } else {
-                invToSearch.inv.inv0 = 0;
-                invToSearch.inv.inv1 = 0;
-                invToSearch.inv.inv2 = 2;
-                invToSearch.inv.inv3 = 2;
-                const Node *nodeForBrew = Tree::BFS(initialNode, invToSearch, count);
-                if (nodeForBrew != nullptr) {
-                    steps = convertTreeSteps(stepsFromNode(initialNode, nodeForBrew), initialCastsAndLearn);
+                const vector<Action> &brews = getAllBrews(reinterpret_cast<Action (&)[]>(actions), actionCount);
+                const vector<int> solution = findSolution(invToSearch, initialCastsAndLearn, brews, TREE_DEPTH, 0);
+                cerr << "-- solution --" << endl;
+                for (auto& i: solution)
+                    cerr << i << ' ';
+                cerr << "-- end solu --" << endl;
+                if (solution.empty()) {
+                    // to do random cast
                 } else {
-                    cerr << "Kaboom, no end solution found in tree" << endl;
+                    const int brewIdx = -solution.front() - 1;
+                    const Action &brew = brews[brewIdx];
+                    targetId = brew.actionId;
+                    for (int i = 0; i < actionCount; ++i) {
+                        const Action &a = actions[i];
+                        if (a.actionId == targetId) {
+                            targetIdx = i;
+                            break;
+                        }
+                    }
+                    cerr << "target brew is " << targetId << endl;
+                    steps.clear();
+                    for (int i = 1; i < solution.size(); ++ i) {
+                        steps.push_front(solution[i]);
+                    }
+                    steps = convertTreeSteps(steps, initialCastsAndLearn);
                 }
+                //int count;
+                // todo if we dont find the beginning node, we should try to any recipe that reduce the size of our inv
+                //const Node *initialNode = Tree::BFS(castTree.root, invToSearch, count, true);
+                //cerr << "nodes traversed in initial search " << to_string(count) << endl;
+                /*if (initialNode == nullptr) {
+                    cerr << "Kaboom, no initial solution found in tree" << endl;
+                    for (int i = 0; i < actionCount; ++i) {
+                        const Action &a = actions[i];
+                        if (a.actionType == Cast && CAN_DO_ACTION(invToSearch, a)) {
+                            steps.push_front(a.actionId);
+                        }
+                    }
+                } else {
+                    targetIdx = findBrewIdxWithLowestDelta(reinterpret_cast<Action (&)[]>(actions), actionCount,
+                                                           invToSearch);
+                    Action targetBrew = actions[targetIdx];
+                    targetId = targetBrew.actionId;
+                    invToSearch.inv.inv0 = -targetBrew.delta0;
+                    invToSearch.inv.inv1 = -targetBrew.delta1;
+                    invToSearch.inv.inv2 = -targetBrew.delta2;
+                    invToSearch.inv.inv3 = -targetBrew.delta3;
+                    cerr << "target brew is " << targetId << endl;
+                    // todo check if we already have the inventory required to make the brew, and if so we can skip this
+                    const Node *nodeForBrew = Tree::BFS(initialNode, invToSearch, count, false);
+                    cerr << "nodes traversed in target search " << to_string(count) << endl;
+                    if (nodeForBrew != nullptr) {
+                        cerr << to_string(initialNode->invUnion.inv.inv0) << to_string(initialNode->invUnion.inv.inv1) << to_string(initialNode->invUnion.inv.inv2) << to_string(initialNode->invUnion.inv.inv3) << endl;
+                        cerr << to_string(nodeForBrew->invUnion.inv.inv0) << to_string(nodeForBrew->invUnion.inv.inv1) << to_string(nodeForBrew->invUnion.inv.inv2) << to_string(nodeForBrew->invUnion.inv.inv3) << endl;
+                        steps = convertTreeSteps(stepsFromNode(initialNode, nodeForBrew), initialCastsAndLearn);
+                        cerr << "step  size " << to_string(steps.size()) << endl;
+                    } else {
+                        cerr << "Kaboom, no end solution found in tree" << endl;
+                        invToSearch.inv.inv0 = me.inv0;
+                        invToSearch.inv.inv1 = me.inv1;
+                        invToSearch.inv.inv2 = me.inv2;
+                        invToSearch.inv.inv3 = me.inv3;
+                        for (int i = 0; i < actionCount; ++i) {
+                            const Action &a = actions[i];
+                            if (a.actionType == Cast && CAN_DO_ACTION(invToSearch, a)) {
+                                steps.push_front(a.actionId);
+                            }
+                        }
+                    }
+                }*/
             }
         }
         for (auto& i: steps)
             cerr << i << ' ';
         cerr << endl;
         if (steps.empty()) {
-            if (me.exhaustedActions.empty()) {
-                cout << "WAIT" << endl;
+            if (actions[targetIdx].actionId == targetId) {
+                cout << "BREW " << to_string(targetId) << endl;
+                targetId = -1;
+                targetIdx = -1;
+                if (exhaustedCast) {
+                    steps.push_front(-1); // rest
+                }
             } else {
-                cout << "REST" << endl;
+                if (!exhaustedCast) {
+                    cout << "WAIT" << endl;
+                } else {
+                    cout << "REST" << endl;
+                }
             }
         } else {
             int actionId = steps.front();
@@ -469,11 +579,10 @@ inline void codingGameAI() {
 
 inline void test() {
     PlayerInfo p = {};
-    p.exhaustedActions = set<int>();
-    p.inv0 = 6;
-    p.inv1 = 0;
+    p.inv0 = 0;
+    p.inv1 = 3;
     p.inv2 = 0;
-    p.inv3 = 0;
+    p.inv3 = 2;
     p.score = 0;
     vector<Action> actions = vector<Action>({
             {46, Brew, -2,-3,0,0,8,0,0,1,1},
@@ -530,21 +639,25 @@ inline void test() {
     });
     Tree t;
     InvUnion invToSearch;
-    invToSearch.inv.inv0 = 0;
-    invToSearch.inv.inv1 = 0;
-    invToSearch.inv.inv2 = 3;
+    invToSearch.inv.inv0 = 3;
+    invToSearch.inv.inv1 = 3;
+    invToSearch.inv.inv2 = 0;
     invToSearch.inv.inv3 = 0;
     int count = 0;
     auto t1 = std::chrono::high_resolution_clock::now();
-    buildTree(t.root, actions, 0, TREE_DEPTH);
+    //buildTree(t.root, actions, 0, TREE_DEPTH);
     auto t2 = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
-    const Node *bfs = Tree::stonkBFS(reinterpret_cast<unordered_set<Node *> (&)[]>(nodesPerDepth), TREE_DEPTH, invToSearch, count);
+    //const Node *bfs = Tree::BFS(t.root, invToSearch, count, true);
     std::cout << duration << endl;
-    if (bfs != nullptr) {
+    //if (bfs != nullptr) {
         cout<<"found solution after looking " << count << " node" << endl;
-    } else
+    //} else
         cout<<"no solution after looking " << count << " node" << endl;
+
+    const vector<Action> initialCastsAndLearn = getAllCastAndLearnAsCast(reinterpret_cast<Action (&)[]>(*actions.data()), actions.size());
+    const vector<Action> &brews = getAllBrews(reinterpret_cast<Action (&)[]>(*actions.data()), actions.size());
+    const vector<int> solution = findSolution(invToSearch, initialCastsAndLearn, brews, TREE_DEPTH, 0);
     cout << "end" << endl;
     //const vector<int> &vector1  = search(p, reinterpret_cast<Action (&)[]>(actions), -1, 9, 0, 12);
     //const vector<int> &vector2  = searchEarly(p, reinterpret_cast<Action (&)[]>(actions), -1, 9, 0, 8);
@@ -554,6 +667,6 @@ inline void test() {
 
 int main()
 {
-    codingGameAI();
-    //test();
+    //codingGameAI();
+    test();
 }
